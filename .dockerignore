@@ -1,0 +1,9 @@
+.git
+__pycache__/
+*.pyc
+downloads/
+Album/
+*.csv
+.venv/
+venv/
+.env

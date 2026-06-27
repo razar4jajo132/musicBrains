@@ -1,0 +1,29 @@
+services:
+  musicbrains:
+    build: .
+    container_name: musicbrains
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      # Shared secret Lidarr sends to BOTH the indexer and download client.
+      MB_API_KEY: "${MB_API_KEY:-changeme}"
+      # Audio: "native" (best fidelity Opus/m4a) or "mp3" (320k transcode).
+      MB_AUDIO_FORMAT: "${MB_AUDIO_FORMAT:-native}"
+      # The quality token put in release titles — must match your Lidarr
+      # quality profile (e.g. MP3-320, MP3-256).
+      MB_QUALITY_TOKEN: "${MB_QUALITY_TOKEN:-MP3-256}"
+      # Category Lidarr's download client is configured with.
+      MB_CATEGORY: "music"
+      MB_COMPLETED_DIR: "/downloads/completed"
+      MB_INCOMPLETE_DIR: "/downloads/incomplete"
+      # Optional: cookies.txt for YouTube bot-checks (see README). Leave unset
+      # if not needed.
+      MB_YTDLP_COOKIES: "${MB_YTDLP_COOKIES:-}"
+    volumes:
+      # IMPORTANT: this MUST be the same storage Lidarr imports from. When this
+      # service and Lidarr share a host, point both at the same path. Across
+      # hosts, use a shared mount + Lidarr Remote Path Mapping.
+      - ./downloads:/downloads
+      # Mount a cookies file here if you set MB_YTDLP_COOKIES=/cookies.txt
+      # - ./cookies.txt:/cookies.txt:ro

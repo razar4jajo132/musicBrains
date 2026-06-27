@@ -1,2 +1,6 @@
 requests>=2.31
 yt-dlp>=2024.01.01
+mutagen>=1.47
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9

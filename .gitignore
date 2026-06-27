@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+downloads/
+Album/
+*.csv
+.env
+cookies.txt
