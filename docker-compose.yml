@@ -1,29 +1,50 @@
 services:
   musicbrains:
     build: .
+    image: musicbrains:latest
     container_name: musicbrains
     restart: unless-stopped
+
+    # Run as the SAME uid/gid Lidarr uses (LinuxServer images: PUID/PGID,
+    # usually 1000:1000). This makes the files we write owned by a user Lidarr
+    # can read, move, and import. HOME must point somewhere writable for yt-dlp.
+    user: "${PUID:-1000}:${PGID:-1000}"
+
     ports:
-      - "8787:8787"
+      - "${MB_PORT:-8787}:8787"
+
     environment:
-      # Shared secret Lidarr sends to BOTH the indexer and download client.
+      HOME: "/tmp"
+      # Shared secret Lidarr sends to BOTH the indexer and the download client.
       MB_API_KEY: "${MB_API_KEY:-changeme}"
-      # Audio: "native" (best fidelity Opus/m4a) or "mp3" (320k transcode).
+      # "native" (best-fidelity Opus/m4a, no re-encode) or "mp3" (transcode).
       MB_AUDIO_FORMAT: "${MB_AUDIO_FORMAT:-native}"
-      # The quality token put in release titles — must match your Lidarr
-      # quality profile (e.g. MP3-320, MP3-256).
+      MB_MP3_BITRATE: "${MB_MP3_BITRATE:-320}"
+      # Quality token put in release titles; must be ACCEPTED by your Lidarr
+      # quality profile or grabs get rejected.
       MB_QUALITY_TOKEN: "${MB_QUALITY_TOKEN:-MP3-256}"
-      # Category Lidarr's download client is configured with.
-      MB_CATEGORY: "music"
-      MB_COMPLETED_DIR: "/downloads/completed"
-      MB_INCOMPLETE_DIR: "/downloads/incomplete"
-      # Optional: cookies.txt for YouTube bot-checks (see README). Leave unset
-      # if not needed.
+      # Must match the category you give the download client in Lidarr.
+      MB_CATEGORY: "${MB_CATEGORY:-music}"
+      # Where finished albums are written (path INSIDE this container).
+      MB_COMPLETED_DIR: "${MB_COMPLETED_DIR:-/downloads/completed}"
+      MB_INCOMPLETE_DIR: "${MB_INCOMPLETE_DIR:-/downloads/incomplete}"
+      # Optional: cookies.txt to beat YouTube bot-checks (see README).
       MB_YTDLP_COOKIES: "${MB_YTDLP_COOKIES:-}"
+
     volumes:
-      # IMPORTANT: this MUST be the same storage Lidarr imports from. When this
-      # service and Lidarr share a host, point both at the same path. Across
-      # hosts, use a shared mount + Lidarr Remote Path Mapping.
-      - ./downloads:/downloads
-      # Mount a cookies file here if you set MB_YTDLP_COOKIES=/cookies.txt
+      # CRITICAL: Lidarr imports by READING the finished files, so this storage
+      # must be visible to Lidarr.
+      #
+      #  - Easiest (same host as Lidarr): mount the SAME host folder Lidarr uses
+      #    for completed downloads, at the SAME container path Lidarr sees. Then
+      #    no Lidarr "Remote Path Mapping" is needed. Example for a LinuxServer
+      #    stack where Lidarr mounts /media/Downloads as /config-complete:
+      #        - /media/Downloads:/config-complete
+      #    and set MB_COMPLETED_DIR=/config-complete/youtube/completed
+      #
+      #  - Otherwise: mount any shared storage and add a Lidarr Remote Path
+      #    Mapping translating our reported path to the one Lidarr sees.
+      - ${MB_DOWNLOADS_HOST:-./downloads}:/downloads
+
+      # If using cookies, mount the file and set MB_YTDLP_COOKIES to its path:
       # - ./cookies.txt:/cookies.txt:ro
