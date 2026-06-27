@@ -24,6 +24,8 @@ Configure in Lidarr:
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
+from email.utils import format_datetime
 from xml.sax.saxutils import escape, quoteattr
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
@@ -89,6 +91,17 @@ def _release_title(hit: core.ReleaseHit) -> str:
     return f"{hit.artist} - {hit.album}{year} [{config.QUALITY_TOKEN}]"
 
 
+def _pub_date(hit: core.ReleaseHit) -> str:
+    """RFC-822 date Lidarr requires on every item. Use the release year when
+    known (so album 'age' is sensible), else now."""
+    try:
+        when = datetime(int(hit.year), 1, 1, tzinfo=timezone.utc) if hit.year \
+            else datetime.now(timezone.utc)
+    except ValueError:
+        when = datetime.now(timezone.utc)
+    return format_datetime(when)
+
+
 def _search_response(request: Request, hits: list[core.ReleaseHit]) -> Response:
     base = _base_url(request)
     items: list[str] = []
@@ -100,6 +113,7 @@ def _search_response(request: Request, hits: list[core.ReleaseHit]) -> Response:
         items.append(f"""    <item>
       <title>{escape(title)}</title>
       <guid isPermaLink="false">{escape(hit.mbid)}</guid>
+      <pubDate>{_pub_date(hit)}</pubDate>
       <link>{escape(dl)}</link>
       <comments>{escape(f'https://musicbrainz.org/release/{hit.mbid}')}</comments>
       <category>3010</category>
