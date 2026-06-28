@@ -390,6 +390,26 @@ def find_youtube_match(
         return MatchResult(track, pick, "2-audio",
                            _format_delta(_duration_delta(pick, target)))
 
+    # ---- Stage 2b: plain query -------------------------------------------
+    # The "official MV"/"official audio" queries miss official uploads with
+    # non-standard titles — e.g. "<Track> (OFFICIAL VISUALIZER)", lyric videos
+    # posted on the artist's own channel, or plain "<Track>" uploads. A bare
+    # query surfaces those. We still require an official channel + duration
+    # match here, so this stays a *confident* pick, not a loose fallback; the
+    # lyric/fan filter keeps an official lyric reupload from beating real audio.
+    q2b = f'{artist} "{title}"'
+    r2b = yt_search(q2b)
+    pick = _pick(r2b, artist, target, require_official=True,
+                 tolerance=DURATION_TOLERANCE_SECONDS, skip_lyric_videos=True)
+    if not pick:
+        # No non-lyric official hit — allow an official lyric upload before
+        # falling through to Stage 3 / the unofficial fallback pool.
+        pick = _pick(r2b, artist, target, require_official=True,
+                     tolerance=DURATION_TOLERANCE_SECONDS)
+    if pick:
+        return MatchResult(track, pick, "2-plain",
+                           _format_delta(_duration_delta(pick, target)))
+
     # ---- Stage 3: Topic trick --------------------------------------------
     r3: list[Candidate] = []
     if use_topic_stage:
@@ -403,10 +423,10 @@ def find_youtube_match(
 
     # ---- Fallback ---------------------------------------------------------
     # Pool order matters: results from the audio query are most likely to
-    # be actual audio uploads, so they go first; Topic results second; MV
-    # query last (its top hits are usually the MV itself which already
-    # failed the tolerance check).
-    pool: list[Candidate] = [*r2, *r3, *r1]
+    # be actual audio uploads, so they go first; the plain query next; Topic
+    # results; MV query last (its top hits are usually the MV itself which
+    # already failed the tolerance check).
+    pool: list[Candidate] = [*r2, *r2b, *r3, *r1]
 
     # First try with the lyric-video filter on, so we don't pick a lyric
     # video over an unofficial-but-clean audio reupload.
@@ -533,7 +553,7 @@ def process_release(
     for m in matches:
         by_stage[m.stage] = by_stage.get(m.stage, 0) + 1
     print("Summary:")
-    for stage in ("1-mv", "2-audio", "3-topic", "fallback", "none"):
+    for stage in ("1-mv", "2-audio", "2-plain", "3-topic", "fallback", "none"):
         if stage in by_stage:
             print(f"  {stage:>10}: {by_stage[stage]}")
     return 0
