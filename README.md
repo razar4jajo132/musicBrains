@@ -23,6 +23,7 @@ links to a CSV and batch-downloading them (see [Standalone CLI](#standalone-cli)
 
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
+- [Full walkthrough — install & use with a running Lidarr](#full-walkthrough--install--use-with-a-running-lidarr)
 - [Quick start (Docker)](#quick-start-docker)
 - [Attaching it to Lidarr](#attaching-it-to-lidarr)
   - [The one storage rule](#the-one-storage-rule)
@@ -74,7 +75,143 @@ track IDs, which lets Lidarr import them with high confidence.
 
 ---
 
+## Full walkthrough — install & use with a running Lidarr
+
+This is the complete, start-to-finish guide: a fresh checkout, the running
+container, wiring it into a Lidarr you already have open in your browser, and
+grabbing your first album. It assumes Lidarr is up and you can reach its web UI.
+
+### Step 0 — Prerequisites & the two rules that bite people
+
+- **Docker + Docker Compose** on the machine that will run musicBrains.
+- A **running Lidarr** you can open in a browser.
+- **Run musicBrains on the same machine as Lidarr** if you can — it makes the
+  storage rule trivial. (Cross-machine works too, with a shared mount + Remote
+  Path Mapping; see [the storage rule](#the-one-storage-rule).)
+
+Two things cause 90% of "it downloaded but didn't import" problems — set them up
+right now and you'll avoid both:
+
+1. **Storage must be shared and at the same path.** musicBrains writes finished
+   albums to a folder; Lidarr imports by *reading that folder*. Mount the *same*
+   host directory Lidarr uses for completed downloads into musicBrains at the
+   *same container path* Lidarr sees. (LinuxServer Lidarr usually mounts a
+   downloads folder as `/config-complete` — mount that same host folder into
+   musicBrains and write under it.)
+2. **Run as the same user as Lidarr and make the library writable by it.**
+   LinuxServer Lidarr runs as `PUID:PGID` (usually `1000:1000`). Run musicBrains
+   as the same uid/gid, and make sure your **music library** is owned by that
+   uid — if any artist folders are owned by `root`, Lidarr can't import into
+   them (`UnauthorizedAccessException`). To fix existing folders:
+   `docker exec lidarr chown -R abc:users /music`.
+
+### Step 1 — Get the code and configure it
+
+```bash
+git clone https://github.com/razar4jajo132/musicBrains.git
+cd musicBrains
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```ini
+MB_API_KEY=<paste output of: openssl rand -hex 16>   # your shared secret
+PUID=1000                 # match Lidarr's PUID
+PGID=1000                 # match Lidarr's PGID
+MB_AUDIO_FORMAT=native    # or "mp3" — see note in Step 4
+MB_QUALITY_TOKEN=MP3-256  # quality musicBrains advertises (Step 4)
+MB_CATEGORY=music
+```
+
+Now point the storage at the folder Lidarr imports from. The cleanest edit is in
+`docker-compose.yml` — replace the volume + completed dirs with your real paths.
+Example for a LinuxServer stack whose Lidarr maps host `/media/Downloads` to
+`/config-complete`:
+
+```yaml
+    volumes:
+      - /media/Downloads:/config-complete
+    environment:
+      MB_COMPLETED_DIR: /config-complete/musicbrains/completed
+      MB_INCOMPLETE_DIR: /config-complete/musicbrains/incomplete
+```
+
+### Step 2 — Launch it
+
+```bash
+docker compose up -d --build
+curl http://localhost:8787/health     # -> {"ok":true,...}
+```
+
+Note the address Lidarr will use to reach it: if Lidarr is a container on the
+same host, use the host's **LAN IP** (e.g. `http://192.168.1.50:8787`), not
+`localhost`. Call this `<MB_URL>`.
+
+### Step 3 — Wire it into Lidarr
+
+Grab Lidarr's API key from **Lidarr → Settings → General → API Key**, then run
+the provisioner (does both the indexer and the download client correctly):
+
+```bash
+python3 provision_lidarr.py \
+  --lidarr-url  http://<lidarr-host>:8686 \
+  --lidarr-key  <LIDARR_API_KEY> \
+  --service-url <MB_URL> \
+  --service-key <MB_API_KEY> \
+  --prefer --solo-indexer
+```
+
+Or do it by hand in the UI — see [Option B](#option-b--manual-setup-in-the-lidarr-ui).
+Either way, open **Settings → Indexers** and **Settings → Download Clients** and
+hit **Test** on the two new "musicBrains (YouTube)" entries — both should go
+green.
+
+### Step 4 — Make your quality profile accept it
+
+This is the step people forget. musicBrains advertises the quality in
+`MB_QUALITY_TOKEN` (default `MP3-256`). In **Settings → Profiles**, open the
+quality profile your artists use and make sure that quality is **enabled** (and
+not above the cutoff in a way that rejects it). If it isn't allowed, Lidarr will
+*find* the release but refuse to grab it.
+
+> **About audio quality:** with `MB_AUDIO_FORMAT=native` the files are really
+> Opus (~160 kbps), which Lidarr detects as "OGG Vorbis"/"Unknown" on import —
+> usually fine, but if your profile is strict, set `MB_AUDIO_FORMAT=mp3` so the
+> files are real MP3 matching the advertised token, then `docker compose up -d
+> --build`.
+
+### Step 5 — Grab your first album
+
+1. In Lidarr, go to an artist and an album you're missing (or add one:
+   **Add New**, then let it monitor the album).
+2. Click the **Interactive Search** (magnifying-glass) icon on the album.
+3. You'll see a `musicBrains (YouTube)` result like
+   `Artist - Album (Year) [MP3-256]`. Click the **download arrow** to grab it.
+4. Watch **Activity → Queue**: it moves through `downloading → importing`, then
+   disappears as Lidarr imports the files into your library.
+5. Confirm the tracks now show as present on the album, and the files are in
+   your music library folder.
+
+That's the whole loop. From here, Lidarr's normal automatic search will grab
+missing albums through musicBrains on its own.
+
+### Step 6 — Day-to-day notes
+
+- **Don't restart/rebuild the container while a download is in progress.** Its
+  queue is in-memory, so a restart orphans the in-flight grab and Lidarr loses
+  track of it. Let downloads finish first.
+- **Partial albums are normal.** If a track has no acceptable YouTube match it's
+  skipped; the album imports with the rest and shows as incomplete. Re-run the
+  album search later to try again.
+- **Logs:** `docker logs -f musicbrains` (this service) and Lidarr's own logs
+  for import decisions.
+
+---
+
 ## Quick start (Docker)
+
+The condensed version of the walkthrough above.
 
 ```bash
 git clone https://github.com/razar4jajo132/musicBrains.git
