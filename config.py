@@ -105,8 +105,16 @@ USER_AGENT = _env(
 )
 
 # How many MusicBrainz release candidates to return per Lidarr search. Lidarr
-# picks among them using its quality profile + the (faked) sizes we report.
+# picks among them using its quality profile + the (estimated) sizes we report.
 MAX_SEARCH_RESULTS = _env_int("MB_MAX_SEARCH_RESULTS", 5)
+
+# Estimated size per track (MB), used both for the size we advertise in Newznab
+# results and the SABnzbd queue display. Lidarr rejects a release whose size is
+# too large to plausibly be the advertised QUALITY_TOKEN bitrate (e.g. an
+# MP3-256 release that works out to >256 kbps over the album runtime). Native
+# YouTube audio (~160 kbps Opus) is roughly 3 MB for a typical track, so keep
+# this low enough to stay under that cap. Tunable for unusual albums.
+EST_MB_PER_TRACK = float(_env("MB_EST_MB_PER_TRACK", "3"))
 
 
 def ensure_dirs() -> None:

@@ -107,8 +107,10 @@ def _search_response(request: Request, hits: list[core.ReleaseHit]) -> Response:
     items: list[str] = []
     for hit in hits:
         title = _release_title(hit)
-        # Plausible fake size so Lidarr's min-size checks pass.
-        size = max(1, hit.track_count) * int(8.0 * 1024 * 1024)
+        # Estimated size. Must stay small enough that it's plausibly the
+        # advertised QUALITY_TOKEN bitrate over the album runtime, or Lidarr
+        # rejects it ("X MB is larger than maximum allowed Y MB").
+        size = max(1, hit.track_count) * int(config.EST_MB_PER_TRACK * 1024 * 1024)
         dl = f"{base}/getnzb?id={hit.mbid}&apikey={config.API_KEY}"
         items.append(f"""    <item>
       <title>{escape(title)}</title>

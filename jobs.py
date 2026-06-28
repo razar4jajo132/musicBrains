@@ -39,10 +39,9 @@ FAILED = "Failed"
 ACTIVE = (QUEUED, DOWNLOADING)
 FINISHED = (COMPLETED, FAILED)
 
-# Rough per-track size estimate (MB) used only to give Lidarr plausible numbers
-# in the queue. The real files are whatever YouTube serves; Lidarr doesn't gate
-# import on this matching, but it likes non-zero sizes.
-EST_MB_PER_TRACK = 8.0
+# Per-track size estimate (MB) for the queue display. Shared with the Newznab
+# size calc via config so the two stay consistent. See config.EST_MB_PER_TRACK.
+EST_MB_PER_TRACK = config.EST_MB_PER_TRACK
 
 
 @dataclass
